@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>班级随机抽奖（可选人数·移动优化）</title>
+<style>
+  :root{
+    --bg1:#0f1020;
+    --bg2:#090a1a;
+    --accent:#7c4dff;
+    --accent2:#00e5ff;
+    --win:#00ffb3;
+    --gold:#ffd166;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:"Microsoft YaHei",system-ui,-apple-system,Roboto,Arial,sans-serif;
+    color:#e7e9ee;
+    background:
+      radial-gradient(1200px 600px at 70% -10%, #20224a 0%, transparent 60%),
+      radial-gradient(900px 500px at 10% 120%, #1b2a4a 0%, transparent 60%),
+      linear-gradient(180deg, var(--bg1), var(--bg2));
+    /* 允许页面滚动，避免小屏被裁切 */
+    overflow:auto;
+  }
+  .stars{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.6;
+    background:
+      radial-gradient(2px 2px at 10% 20%, rgba(255,255,255,.9), rgba(255,255,255,0) 70%),
+      radial-gradient(1.5px 1.5px at 70% 30%, rgba(255,255,255,.7), rgba(255,255,255,0) 70%),
+      radial-gradient(1.7px 1.7px at 30% 80%, rgba(255,255,255,.8), rgba(255,255,255,0) 70%),
+      radial-gradient(1.2px 1.2px at 85% 60%, rgba(255,255,255,.6), rgba(255,255,255,0) 70%);
+    animation: twinkle 6s ease-in-out infinite alternate;
+    filter: drop-shadow(0 0 4px rgba(255,255,255,.3));
+  }
+  @keyframes twinkle{from{transform:translateY(0)}to{transform:translateY(-6px)}}
+
+  .wrap{
+    position:relative; z-index:1;
+    min-height: 100dvh; /* 支持手机地址栏变化的真实视口高度 */
+    display:flex; flex-direction:column; gap:16px;
+    align-items:center; justify-content:center;
+    padding:24px;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); /* 兼容刘海安全区 */
+  }
+
+  h1{
+    margin:6px 0 0; font-weight:800; letter-spacing:.5px; text-align:center;
+    text-shadow:0 0 10px rgba(124,77,255,.35),0 0 30px rgba(0,229,255,.25);
+    background:linear-gradient(90deg,#ffffff,#dfe7ff 30%,#9be7ff 60%,#ffffff);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    font-size: clamp(20px, 4.6vw, 32px);
+  }
+
+  .panel{
+    width:min(1100px, 94vw);
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:20px;
+    box-shadow:0 10px 50px rgba(0,0,0,.35), inset 0 0 40px rgba(124,77,255,.08);
+    padding:14px 12px 12px;
+    backdrop-filter: blur(6px);
+    /* 留出与底部跑马灯的空间，避免遮挡 */
+    margin-bottom: 70px;
+  }
+
+  .controls{
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:center; margin-bottom:10px;
+  }
+  .btn{
+    appearance:none; border:none; cursor:pointer;
+    padding:12px 16px; border-radius:12px; font-weight:700; letter-spacing:.3px;
+    background:linear-gradient(135deg, var(--accent), var(--accent2));
+    color:#06080f;
+    box-shadow:0 10px 20px rgba(124,77,255,.35), 0 0 0 1px rgba(0,229,255,.35) inset;
+    transition: transform .08s ease, box-shadow .2s ease;
+    font-size: 14px;
+  }
+  .btn:hover{ transform: translateY(-1px) scale(1.01) }
+  .btn:active{ transform: translateY(1px) scale(.99) }
+  .btn.ghost{ background:transparent; color:#e7e9ee; border:1px dashed rgba(231,233,238,.35) }
+
+  .num-wrap{
+    display:flex; align-items:center; gap:8px;
+    background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.15);
+    padding:8px 10px; border-radius:12px;
+  }
+  .num-wrap label{font-size:12px; opacity:.8}
+  .num-input{
+    width:90px; padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.25);
+    background:rgba(0,0,0,.25); color:#e7e9ee; font-weight:700; text-align:center;
+    -moz-appearance:textfield;
+  }
+  .num-input::-webkit-outer-spin-button,
+  .num-input::-webkit-inner-spin-button{ -webkit-appearance: none; margin: 0; }
+
+  .winners{
+    width:100%;
+    background: rgba(0,0,0,.35);
+    border:1px dashed rgba(255,255,255,.18);
+    border-radius:14px;
+    padding:10px 12px;
+    font-size:14px; line-height:1.5;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .winners .label{opacity:.75;margin-right:8px}
+  .winners .result{font-weight:800;color:var(--gold);text-shadow:0 0 10px rgba(255,209,102,.35);}
+
+  .cloud{
+    display:grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap:10px;
+    /* 在手机上允许云区域自身滚动，避免整页被撑爆 */
+    max-height: 56dvh;
+    overflow:auto;
+    padding:6px;
+  }
+  /* 更宽的屏幕自动改为多列 */
+  @media (min-width: 540px){
+    .cloud{ grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+  }
+
+  .name{
+    user-select:none; display:flex; align-items:center; justify-content:center;
+    border-radius:12px; font-weight:700; padding:10px 8px; text-align:center;
+    background:linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+    border:1px solid rgba(255,255,255,.08);
+    box-shadow:0 6px 12px rgba(0,0,0,.25), inset 0 0 30px rgba(124,77,255,.06);
+    transform: translateZ(0);
+    transition: transform .6s cubic-bezier(.2,.85,.2,1), filter .6s;
+    animation: float 6s ease-in-out infinite;
+    font-size: 15px;
+    padding-block: 14px;
+  }
+  .name:nth-child(odd){ animation-duration:7s }
+  @keyframes float{ 0%,100% {transform:translateY(-4px)} 50% {transform:translateY(4px)} }
+  .name.roll{ animation: roll .35s linear infinite }
+  @keyframes roll{ from{filter:brightness(1)} to{filter:brightness(1.35)} }
+  .name.winner{
+    background: linear-gradient(135deg, rgba(0,255,179,.15), rgba(0,229,255,.12));
+    border-color: rgba(0,255,179,.8);
+    box-shadow: 0 0 0 2px rgba(0,255,179,.35) inset, 0 8px 20px rgba(0,255,179,.25), 0 0 40px rgba(0,255,179,.25);
+    transform: scale(1.06);
+  }
+
+  .ticker{
+    position:fixed; left:0; right:0; bottom:0; z-index:2;
+    height:46px; display:flex; align-items:center; gap:10px;
+    background: linear-gradient(180deg, rgba(0,0,0,.0), rgba(0,0,0,.55));
+    padding:8px 14px;
+    font-weight:700; letter-spacing:.3px; font-size:14px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--win); box-shadow:0 0 8px var(--win) }
+  .ticker .marquee{ white-space:nowrap; overflow:hidden }
+  .ticker .marquee span{ display:inline-block; padding-left:100%; animation: marquee 18s linear infinite }
+  @keyframes marquee{ from{transform:translateX(0)} to{transform:translateX(-100%)} }
+
+  .confetti{ position:fixed; inset:0; pointer-events:none; z-index:5 }
+</style>
+</head>
+<body>
+<div class="stars"></div>
+<canvas class="confetti"></canvas>
+
+<div class="wrap">
+  <h1>🎉 随机抽奖</h1>
+
+  <div class="panel">
+    <div class="controls">
+      <div class="num-wrap">
+        <label for="pickInput">人数</label>
+        <input id="pickInput" class="num-input" type="number" min="1" max="34" step="1" value="10" inputmode="numeric" />
+      </div>
+      <button id="drawBtn" class="btn">开始抽奖</button>
+      <button id="copyBtn" class="btn ghost" title="复制结果" disabled>复制结果</button>
+    </div>
+
+    <div class="winners">
+      <span class="label">本次结果：</span>
+      <span id="result" class="result">（尚未抽取）</span>
+    </div>
+
+    <div id="cloud" class="cloud"></div>
+  </div>
+</div>
+
+<div class="ticker">
+  <div class="dot"></div>
+  <div class="marquee"><span id="marqueeText">准备抽奖中…祝大家好运！</span></div>
+</div>
+
+<script>
+const ALL_NAMES=[
+  "于庭","丁文博","林雅婷","蔡良","李雪阳","李晓琪","廖文豪","易瑜婕",
+  "黄子扬","杨钶文","李伟杰","徐孝团","范剑华","王以博","彭嘉毅","郭莹",
+  "余嘉梅","吴佳旺","李渭","王志强","魏雨萌","张明","饶尔勋","王新亚",
+  "祝佳琪","章家梁","伍丽媛","章帅","周欣悦","殷果","杨晨裕","童嘉毅",
+  "张译锋","李家乐"
+];
+
+const cloud=document.getElementById("cloud"),
+      drawBtn=document.getElementById("drawBtn"),
+      copyBtn=document.getElementById("copyBtn"),
+      resultEl=document.getElementById("result"),
+      marqueeText=document.getElementById("marqueeText"),
+      pickInput=document.getElementById("pickInput");
+
+ALL_NAMES.forEach(n=>{const d=document.createElement("div");d.className="name";d.textContent=n;cloud.appendChild(d)});
+
+function shuffle(a){const arr=a.slice();for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}return arr;}
+function clampPick(v){const max=ALL_NAMES.length;v=parseInt(v||'10',10);if(isNaN(v)) v=10;return Math.max(1, Math.min(max, v));}
+function getPick(){return clampPick(pickInput.value);}
+pickInput.addEventListener('change', ()=>{ pickInput.value = clampPick(pickInput.value); });
+
+function fireConfetti(durationMs=2200){
+  const c=document.querySelector(".confetti"),ctx=c.getContext("2d");
+  function resize(){c.width=innerWidth;c.height=innerHeight;}resize();addEventListener('resize',resize);
+  const N=160,p=Array.from({length:N},(_,i)=>({x:Math.random()*c.width,y:-20-Math.random()*c.height*0.4,r:3+Math.random()*5,vy:2+Math.random()*3,vx:-1+Math.random()*2,rot:Math.random()*Math.PI,vr:-0.1+Math.random()*0.2,color:i%3===0?'#00ffb3':(i%3===1?'#ffd166':'#00e5ff')}));
+  const start=performance.now();
+  function step(t){
+    const e=t-start; ctx.clearRect(0,0,c.width,c.height);
+    for(const o of p){ o.x+=o.vx; o.y+=o.vy; o.rot+=o.vr;
+      if(o.y>c.height+20){o.y=-20;o.x=Math.random()*c.width;}
+      ctx.save(); ctx.translate(o.x,o.y); ctx.rotate(o.rot); ctx.fillStyle=o.color; ctx.fillRect(-o.r,-o.r,o.r*2,o.r*2); ctx.restore();
+    }
+    if(e<durationMs) requestAnimationFrame(step); else ctx.clearRect(0,0,c.width,c.height);
+  }
+  requestAnimationFrame(step);
+}
+
+let rollingTimer=null;
+function startDraw(){
+  drawBtn.disabled=true; copyBtn.disabled=true; drawBtn.textContent="抽取中…";
+  const cards=[...cloud.children];
+  cards.forEach(el=>{el.classList.add('roll'); el.classList.remove('winner');});
+  marqueeText.textContent='正在抽取中……请稍候';
+
+  let step=0;
+  rollingTimer=setInterval(()=>{
+    step++;
+    const PICK = getPick();
+    const previewSet=new Set(shuffle(ALL_NAMES).slice(0, Math.min(PICK, ALL_NAMES.length)));
+    cards.forEach(el=> el.classList.toggle('winner', previewSet.has(el.textContent)));
+    if(step>14){ clearInterval(rollingTimer); finalize(); }
+  },140);
+}
+
+function finalize(){
+  const PICK = getPick();
+  const winners = shuffle(ALL_NAMES).slice(0, Math.min(PICK, ALL_NAMES.length));
+  const winnersLine = winners.join(', ');
+  resultEl.textContent = winnersLine;
+  marqueeText.textContent = '本次获奖（'+PICK+'人）：' + winnersLine;
+
+  const cards=[...cloud.children];
+  cards.forEach(el=>{ el.classList.remove('roll'); el.classList.toggle('winner', winners.includes(el.textContent)); });
+
+  fireConfetti();
+  copyBtn.disabled=false;
+  drawBtn.disabled=false;
+  drawBtn.textContent='重新抽奖';
+}
+
+drawBtn.onclick=startDraw;
+copyBtn.onclick=()=>{
+  const t=resultEl.textContent.trim(); if(!t || t.includes('尚未')) return;
+  navigator.clipboard.writeText(t).then(()=>{ copyBtn.textContent='已复制'; setTimeout(()=>copyBtn.textContent='复制结果',1200); });
+};
+
+addEventListener('keydown', e=>{ if(e.key==='Enter'){ startDraw(); } });
+</script>
+</body>
+</html>
